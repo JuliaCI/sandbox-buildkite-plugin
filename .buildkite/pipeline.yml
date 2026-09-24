@@ -1,7 +1,7 @@
 steps:
   - label: ":desert: :toolbox: Basic sandboxing test (Julia v1)"
     agents:
-      queue: "juliaecosystem"
+      queue: "test"
       sandbox_capable: "true"
       arch: "x86_64"
     plugins:
@@ -22,7 +22,7 @@ steps:
   
   - label: ":desert: :toolbox: Basic sandboxing test (Julia v1.10)"
     agents:
-      queue: "juliaecosystem"
+      queue: "test"
       sandbox_capable: "true"
       arch: "x86_64"
     plugins:
@@ -43,7 +43,7 @@ steps:
 
   - label: ":desert: :toolbox: Basic sandboxing test (Julia nightly)"
     agents:
-      queue: "juliaecosystem"
+      queue: "test"
       sandbox_capable: "true"
       arch: "x86_64"
     plugins:
@@ -64,7 +64,7 @@ steps:
 
   - label: ":desert: :toolbox: workspaces test"
     agents:
-      queue: "juliaecosystem"
+      queue: "test"
       sandbox_capable: "true"
       arch: "x86_64"
     plugins:
