@@ -25,6 +25,10 @@ configuration:
     gid:
       type: string
 
+    # How often to retry a failed rootfs download, with exponential backoff (default 4)
+    download_retries:
+      type: integer
+
     # If this is set, causes all sorts of debugging information to be printed out
     verbose:
       type: boolean

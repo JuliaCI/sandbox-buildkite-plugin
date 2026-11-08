@@ -20,13 +20,28 @@ workspaces = [reverse(split(pair, ":")) for pair in extract_env_array("BUILDKITE
 uid = parse(Int, get(ENV, "BUILDKITE_PLUGIN_SANDBOX_UID", string(Sandbox.getuid())))
 gid = parse(Int, get(ENV, "BUILDKITE_PLUGIN_SANDBOX_GID", string(Sandbox.getgid())))
 
+# `download_artifact` verifies the tree hash but does not retry, and returns (rather
+# than throws) its error. Retry with backoff to ride out transient failures of the
+# download host, such as GitHub answering HTTP 504.
+function download_rootfs(treehash, url; retries::Int)
+    delays = ExponentialBackOff(n=retries, first_delay=15, factor=2, max_delay=120, jitter=0.25)
+    for (attempt, delay) in enumerate(Iterators.flatten((delays, (nothing,))))
+        # Make sure we enable logging for Artifacts
+        result = withenv("JULIA_DEBUG" => "Artifacts") do
+            Pkg.Artifacts.download_artifact(treehash, url, nothing; verbose=true)
+        end
+        (result === true || Pkg.Artifacts.artifact_exists(treehash)) && return true
+        delay === nothing && return false
+        @warn("Downloading rootfs failed, retrying in $(round(Int, delay)) s", attempt, url)
+        sleep(delay)
+    end
+end
+
 # Might as well ensure that the artifact exists now
 if !Pkg.Artifacts.artifact_exists(rootfs_treehash)
     println("--- Downloading rootfs");
-    # Make sure we enable logging for Artifacts
-    withenv("JULIA_DEBUG" => "Artifacts") do
-        Pkg.Artifacts.download_artifact(rootfs_treehash, rootfs_url, nothing; verbose=true)
-    end
+    retries = parse(Int, get(ENV, "BUILDKITE_PLUGIN_SANDBOX_DOWNLOAD_RETRIES", "4"))
+    download_rootfs(rootfs_treehash, rootfs_url; retries)
 end
 
 # Double-check that this actually downloaded properly, as a 404 can silently fail!
@@ -35,6 +50,12 @@ if !Pkg.Artifacts.artifact_exists(rootfs_treehash)
     run(`buildkite-agent annotate --style=error --context=$(bytes2hex(rootfs_treehash.bytes)) "Unable to download rootfs from '$(rootfs_url)'"`)
     exit(1)
 end
+
+# julia-buildkite-plugin's pre-exit trims the artifact store oldest-ctime-first. Bumping
+# the rootfs' ctime on every use turns that into LRU, so a rootfs in active use is not
+# evicted in favour of one that was merely downloaded later. (`Base.touch` cannot touch
+# directories.)
+run(ignorestatus(`touch -c $(Pkg.Artifacts.artifact_path(rootfs_treehash))`))
 
 # Create an Artifacts.toml file pointing to this rootfs treehash.
 # The file itself will be deleted after this pipeline finishes, but
