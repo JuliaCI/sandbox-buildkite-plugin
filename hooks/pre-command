@@ -34,13 +34,21 @@ fi
 echo "--- Instantiating sandbox environment"
 julia --project="${SANDBOX_REPO}/lib" -e "using Pkg; Pkg.instantiate()"
 
-# Perform absurd bash overwriting, so that all future commands are sandboxed
+# Perform absurd bash overwriting, so that all future commands are sandboxed.
+# Generate the wrapper next to the target first: generating it downloads the rootfs, and if
+# that fails the real shell must still be in place, or the agent's own hooks (pre-exit) can't
+# run. Only once the wrapper exists, move the real shell aside and the wrapper into place.
 echo "--- Installing bash override"
 BASH_TARGET="${BUILDKITE_PLUGIN_SANDBOX_SHELL:-/bin/bash}"
+BASH_WRAPPER="${BASH_TARGET}.sandbox-$$"
+if ! julia --project="${SANDBOX_REPO}/lib" "${SANDBOX_REPO}/lib/generate_sandboxed_bash.jl" "${BASH_WRAPPER}"; then
+    rm -f "${BASH_WRAPPER}"
+    exit 1
+fi
+
 mkdir -p /bin/backup
 mv -v "${BASH_TARGET}" /bin/backup/bash
-
-julia --project="${SANDBOX_REPO}/lib" "${SANDBOX_REPO}/lib/generate_sandboxed_bash.jl" "${BASH_TARGET}"
+mv -v "${BASH_WRAPPER}" "${BASH_TARGET}"
 
 if [[ "${BUILDKITE_PLUGIN_SANDBOX_VERBOSE:-false}" == "true" ]]; then
     echo "--- Verbose output from the Sandbox plugin"
