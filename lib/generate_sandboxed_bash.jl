@@ -32,7 +32,9 @@ function download_rootfs(treehash, url; retries::Int)
         end
         (result === true || Pkg.Artifacts.artifact_exists(treehash)) && return true
         delay === nothing && return false
-        @warn("Downloading rootfs failed, retrying in $(round(Int, delay)) s", attempt, url)
+        # Older Pkg versions return `false` instead of the error
+        err = result isa Exception ? sprint(showerror, result) : nothing
+        @warn("Downloading rootfs failed, retrying in $(round(Int, delay)) s", attempt, url, err)
         sleep(delay)
     end
 end
@@ -54,8 +56,14 @@ end
 # julia-buildkite-plugin's pre-exit trims the artifact store oldest-ctime-first. Bumping
 # the rootfs' ctime on every use turns that into LRU, so a rootfs in active use is not
 # evicted in favour of one that was merely downloaded later. (`Base.touch` cannot touch
-# directories.)
-run(ignorestatus(`touch -c $(Pkg.Artifacts.artifact_path(rootfs_treehash))`))
+# directories.) This is best effort: the rootfs may live in a read-only depot further
+# down `JULIA_DEPOT_PATH`, where touching it fails and doesn't matter.
+try
+    run(pipeline(ignorestatus(`touch -c $(Pkg.Artifacts.artifact_path(rootfs_treehash))`);
+                 stderr=devnull))
+catch err
+    @debug "Failed to touch the rootfs" exception=err
+end
 
 # Create an Artifacts.toml file pointing to this rootfs treehash.
 # The file itself will be deleted after this pipeline finishes, but
