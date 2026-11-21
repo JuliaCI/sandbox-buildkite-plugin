@@ -20,19 +20,40 @@ workspaces = [reverse(split(pair, ":")) for pair in extract_env_array("BUILDKITE
 uid = parse(Int, get(ENV, "BUILDKITE_PLUGIN_SANDBOX_UID", string(Sandbox.getuid())))
 gid = parse(Int, get(ENV, "BUILDKITE_PLUGIN_SANDBOX_GID", string(Sandbox.getgid())))
 
-# Might as well ensure that the artifact exists now
+# Where to look for the rootfs: the Pkg server first (it serves the artifacts of registered
+# packages, such as the images in RootfsImages' catalog, by tree hash), then the URL from the
+# pipeline. Images the Pkg server doesn't have get a 404 there and come from the URL.
+function rootfs_sources(treehash, url)
+    server = Pkg.pkg_server()
+    server === nothing && return [url]
+    return [string(rstrip(server, '/'), "/artifact/", bytes2hex(treehash.bytes)), url]
+end
+
 if !Pkg.Artifacts.artifact_exists(rootfs_treehash)
-    println("--- Downloading rootfs");
+    println("--- Downloading rootfs")
+    errors = String[]
     # Make sure we enable logging for Artifacts
     withenv("JULIA_DEBUG" => "Artifacts") do
-        Pkg.Artifacts.download_artifact(rootfs_treehash, rootfs_url, nothing; verbose=true)
+        for source in rootfs_sources(rootfs_treehash, rootfs_url)
+            println("Downloading rootfs from $(source)")
+            # returns the error instead of throwing it
+            result = Pkg.Artifacts.download_artifact(rootfs_treehash, source, nothing; verbose=true)
+            if result === true
+                println("Downloaded rootfs from $(source)")
+                break
+            end
+            push!(errors, "$(source): $(result isa Exception ? sprint(showerror, result) : repr(result))")
+        end
     end
 end
 
 # Double-check that this actually downloaded properly, as a 404 can silently fail!
 if !Pkg.Artifacts.artifact_exists(rootfs_treehash)
-    @error("Unable to download rootfs!", treehash=bytes2hex(rootfs_treehash.bytes), url=rootfs_url)
-    run(`buildkite-agent annotate --style=error --context=$(bytes2hex(rootfs_treehash.bytes)) "Unable to download rootfs from '$(rootfs_url)'"`)
+    hash = bytes2hex(rootfs_treehash.bytes)
+    @error("Unable to download rootfs $(hash)\n" * join(errors, "\n"))
+    msg = "Unable to download rootfs `$(hash)`, tried:\n" *
+          join(("- $(first(split(e, '\n')))" for e in errors), "\n")
+    run(`buildkite-agent annotate --style=error --context=$(hash) $(msg)`)
     exit(1)
 end
 
