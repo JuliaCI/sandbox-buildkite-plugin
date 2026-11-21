@@ -1,4 +1,4 @@
-FROM julia:1.6-alpine as julia_container
+FROM julia:1.10-alpine AS julia_container
 
 FROM buildkite/plugin-tester
 COPY --from=julia_container /usr/local/julia /usr/local/julia

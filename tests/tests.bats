@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 
-load "$BATS_PATH/load.bash"
+load "${BATS_PLUGIN_PATH:-$BATS_PATH}/load.bash"
 
 # We always want verbose mode
 export BUILDKITE_PLUGIN_SANDBOX_VERBOSE=true
@@ -30,6 +30,8 @@ export BUILDKITE_PLUGIN_SANDBOX_VERBOSE=true
     export BUILDKITE_PLUGIN_SANDBOX_ROOTFS_TREEHASH="c0f2c53b857189e1c8378bd37c3b620ea4843e07"
     export BUILDKITE_PLUGIN_SANDBOX_SHELL="${dir}/bash"
     export BUILDKITE_BUILD_PATH="${dir}"
+    # The hook moves the shell it replaces aside
+    cp "$(command -v bash)" "${dir}/bash"
 
     # Generate the bash wrapper
     run /plugin/hooks/pre-command
